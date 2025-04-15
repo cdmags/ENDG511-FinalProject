@@ -24,7 +24,7 @@ print("Select the output directory for anomalies...")
 output_dir = Path(filedialog.askdirectory(title="Select Output Directory"))
 print(f"Selected output directory: {output_dir}")
 
-print("Select the trained model file (.pt)...")
+print("Select the trained model file...")
 model_path = filedialog.askopenfilename(title="Select YOLO Model File", filetypes=[("PyTorch Model", "*.pt")])
 print(f"Selected model: {model_path}")
 
@@ -64,17 +64,19 @@ def compute_iou(box1, box2):
 
     return iou_value
 
-# === Main Loop ===
+# Loop through training and validation folders
 for sub_dir in ['train', 'val']:
     image_dir = base_image_dir / sub_dir
     label_dir = base_label_dir / sub_dir
 
     print(f"Processing {sub_dir} set from {image_dir}")
 
+    # Use both jpg and png images
     for img_path in tqdm(list(image_dir.glob("*.jpg")) + list(image_dir.glob("*.png"))):
         image = cv2.imread(str(img_path))
         h, w = image.shape[:2]
 
+        # Find the corresponsing text file for YOLO labels
         label_file = label_dir / (img_path.stem + ".txt")
         box_groundtruth = []
         existing_labels = []
@@ -94,9 +96,10 @@ for sub_dir in ['train', 'val']:
                         box_groundtruth.append([x1, y1, x2, y2])
                         existing_labels.append([cls_id, xc, yc, bw, bh])
 
-        # Inference
+        # Perform model inference
         prediction = model(img_path, verbose=False)[0].boxes
 
+        # Get the prediction in x and y coordinates, convert to cpu to be able to use numpy
         for i, box in enumerate(prediction.xyxy.cpu().numpy()):
             conf = prediction.conf[i].item()
             cls = int(prediction.cls[i].item())
@@ -122,7 +125,8 @@ for sub_dir in ['train', 'val']:
                         display_img = cv2.resize(display_img, None, fx=scale_factor, fy=scale_factor, interpolation=cv2.INTER_CUBIC)
 
                     original_with_box = image.copy()
-                    # Draw existing GT boxes in white
+
+                    # Draw existing ground truth boxes in white
                     for gt_box in box_groundtruth:
                         gx1, gy1, gx2, gy2 = gt_box
                         cv2.rectangle(original_with_box, (gx1, gy1), (gx2, gy2), (255, 255, 255), 1)
@@ -175,7 +179,7 @@ for sub_dir in ['train', 'val']:
                             anomaly_txt_path = output_dir / "anom" / "ref"/ f"{img_path.stem}_anomaly_{i}_reference.txt"
                             anomaly_img_path = output_dir / "anom" / f"{img_path.stem}_anomaly_{i}.jpg"
 
-                            # Ensure minimum crop dimensions of 12 pixels
+                            # Ensure minimum crop dimensions of 12 pixels, YOLO thinks that 10 pixels or less is corrupt
                             crop_h, crop_w = crop.shape[:2]
                             if crop_h < 10 or crop_w < 10:
                                 scale = 12 / min(crop_h, crop_w)
@@ -188,7 +192,7 @@ for sub_dir in ['train', 'val']:
                             # Save full-cone annotation for cropped training
                             cropped_train_txt = output_dir / "anom" / f"{img_path.stem}_anomaly_{i}.txt"
                             with open(cropped_train_txt, 'w') as f:
-                                f.write(f"{cone_id} 0.500000 0.500000 1.000000 1.000000")
+                                f.write(f"{cone_id} 0.500000 0.500000 1.000000 1.000000") # This means the entire image is a cone
 
                             cv2.imwrite(str(anomaly_img_path), crop)
 
